@@ -1,3 +1,4 @@
+import requests
 import hashlib
 import json
 from time import time
@@ -5,24 +6,25 @@ from typing import Any, Dict, List, Optional
 from urllib.parse import urlparse
 from uuid import uuid4
 from argparse import ArgumentParser
-import requests
 from flask import Flask, jsonify, request
 
 
 class Blockchain:
     def __init__(self):
+        # 当前交易
         self.current_transactions = []
+        # 链
         self.chain = []
+        # 节点集合
         self.nodes = set()
-
         # 创建创世块
         self.new_block(previous_hash='1', proof=100)
 
     def register_node(self, address: str) -> None:
         """
-        Add a new node to the list of nodes
+        在节点集合中新增加一个节点
 
-        :param address: Address of node. Eg. 'http://192.168.0.5:5000'
+        :param address: 节点的地址. Eg. 'http://192.168.0.2:5000'
         """
 
         parsed_url = urlparse(address)
@@ -30,10 +32,10 @@ class Blockchain:
 
     def valid_chain(self, chain: List[Dict[str, Any]]) -> bool:
         """
-        Determine if a given blockchain is valid
+        校验整条链是否合法
 
-        :param chain: A blockchain
-        :return: True if valid, False if not
+        :param chain: 一条链
+        :return: 返回校验结果
         """
 
         last_block = chain[0]
@@ -44,11 +46,11 @@ class Blockchain:
             print(f'{last_block}')
             print(f'{block}')
             print("\n-----------\n")
-            # Check that the hash of the block is correct
+            # 检查链的哈希值是否正确
             if block['previous_hash'] != self.hash(last_block):
                 return False
 
-            # Check that the Proof of Work is correct
+            # 进行链的有效性验证
             if not self.valid_proof(last_block['proof'], block['proof']):
                 return False
 
@@ -68,10 +70,10 @@ class Blockchain:
         neighbours = self.nodes
         new_chain = None
 
-        # We're only looking for chains longer than ours
+        # 寻找当前最长链
         max_length = len(self.chain)
 
-        # Grab and verify the chains from all the nodes in our network
+        # 比较验证网络中所有节点的链条
         for node in neighbours:
             response = requests.get(f'http://{node}/chain')
 
@@ -84,7 +86,7 @@ class Blockchain:
                     max_length = length
                     new_chain = chain
 
-        # Replace our chain if we discovered a new, valid chain longer than ours
+        # 若发现新的最长链，则进行替换
         if new_chain:
             self.chain = new_chain
             return True
@@ -95,9 +97,9 @@ class Blockchain:
         """
         生成新块
 
-        :param proof: The proof given by the Proof of Work algorithm
-        :param previous_hash: Hash of previous Block
-        :return: New Block
+        :param proof: 工作量证明，随机数Nonce
+        :param previous_hash: 上一个块的哈希值
+        :return: 返回一个新块
         """
 
         block = {
@@ -108,7 +110,7 @@ class Blockchain:
             'previous_hash': previous_hash or self.hash(self.chain[-1]),
         }
 
-        # Reset the current list of transactions
+        # 将当前交易信息重置，为后续区块的交易信息做准备
         self.current_transactions = []
 
         self.chain.append(block)
@@ -118,10 +120,10 @@ class Blockchain:
         """
         生成新交易信息，信息将加入到下一个待挖的区块中
 
-        :param sender: Address of the Sender
-        :param recipient: Address of the Recipient
-        :param amount: Amount
-        :return: The index of the Block that will hold this transaction
+        :param sender: 发送方的地址
+        :param recipient: 接收方的地址
+        :param amount: 交易金额
+        :return: 返回上一个交易的索引+1，以便输出
         """
         self.current_transactions.append({
             'sender': sender,
@@ -140,10 +142,10 @@ class Blockchain:
         """
         生成块的 SHA-256 hash值
 
-        :param block: Block
+        :param block: 区块
         """
 
-        # We must make sure that the Dictionary is Ordered, or we'll have inconsistent hashes
+        # 对于区块字典的信息进行排序，保证有序性，否则生成的Hash会不一致。
         block_string = json.dumps(block, sort_keys=True).encode()
         return hashlib.sha256(block_string).hexdigest()
 
@@ -165,9 +167,9 @@ class Blockchain:
         """
         验证证明: 是否hash(last_proof, proof)以4个0开头
 
-        :param last_proof: Previous Proof
-        :param proof: Current Proof
-        :return: True if correct, False if not.
+        :param last_proof: 上一个区块的工作量证明
+        :param proof: 当前工作量证明
+        :return: 验证合法性
         """
 
         guess = f'{last_proof}{proof}'.encode()
@@ -175,19 +177,18 @@ class Blockchain:
         return guess_hash[:4] == "0000"
 
 
-# Instantiate the Node
 app = Flask(__name__)
 
-# Generate a globally unique address for this node
+# 为节点生成一个唯一的UUID地址
 node_identifier = str(uuid4()).replace('-', '')
 
-# Instantiate the Blockchain
+# 初始化区块链
 blockchain = Blockchain()
 
 
 @app.route('/mine', methods=['GET'])
 def mine():
-    # We run the proof of work algorithm to get the next proof...
+    # 运行工作量证明算法，得到下一个工作量证明
     last_block = blockchain.last_block
     last_proof = last_block['proof']
     proof = blockchain.proof_of_work(last_proof)
@@ -222,7 +223,7 @@ def new_transaction():
     if not all(k in values for k in required):
         return 'Missing values', 400
 
-    # Create a new Transaction
+    # 创建一个新的交易
     index = blockchain.new_transaction(values['sender'], values['recipient'], values['amount'])
 
     response = {'message': f'Transaction will be added to Block {index}'}
@@ -276,6 +277,7 @@ def consensus():
 
 if __name__ == '__main__':
 
+    # 参数添加及解析
     parser = ArgumentParser()
     parser.add_argument('-p', '--port', default=5000, type=int, help='port to listen on')
     args = parser.parse_args()
